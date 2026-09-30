@@ -1,0 +1,73 @@
+name: Terraform Apply - Root AWS Architecture
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  terraform-apply:
+    name: Apply Terraform Infrastructure
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ROOT_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_ROOT_SECRET_ACCESS_KEY }}
+
+    steps:
+
+      # ============================================================
+      # 1. Checkout Terraform repository
+      # ============================================================
+      - name: Checkout Terraform Repository
+        uses: actions/checkout@v4
+
+
+      # ============================================================
+      # 2. Verify AWS authentication
+      # ============================================================
+      - name: Verify AWS Identity
+        run: |
+          set -e
+
+          aws sts get-caller-identity
+
+
+      # ============================================================
+      # 3. Setup Terraform
+      # ============================================================
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+
+      # ============================================================
+      # 4. Terraform Init
+      # ============================================================
+      - name: Terraform Init
+        run: |
+          terraform init
+
+
+      # ============================================================
+      # 5. Terraform Validate
+      # ============================================================
+      - name: Terraform Validate
+        run: |
+          terraform validate
+
+
+      # ============================================================
+      # 6. Terraform Apply
+      # ============================================================
+      - name: Terraform Apply
+        run: |
+          terraform apply \
+            -auto-approve
