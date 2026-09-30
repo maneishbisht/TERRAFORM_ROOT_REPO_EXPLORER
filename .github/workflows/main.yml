@@ -3,7 +3,7 @@ name: Terraform Apply - Root AWS Architecture
 on:
   push:
     branches:
-      - main
+      - master
 
 permissions:
   contents: read
