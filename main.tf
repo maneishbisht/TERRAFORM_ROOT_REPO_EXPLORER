@@ -21,6 +21,11 @@ resource "aws_iam_role" "cluster_admin" {
   })
 }
 
+resource "aws_iam_role_policy_attachment" "cluster_admin_read_only" {
+  role       = aws_iam_role.cluster_admin.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
 resource "aws_iam_role" "view_only" {
   name = "cluster-view-only-role"
 
