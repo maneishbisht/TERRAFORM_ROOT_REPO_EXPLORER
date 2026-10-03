@@ -20,6 +20,9 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
+      APPLICATION_CONFIG_REPO: ${{ secrets.REPO_EXPLORER_APPLICATION_CONFIG }}
+      CONFIG_REPO_PAT: ${{ secrets.CONFIG_REPO_PAT }}
+
     steps:
 
       # ============================================================
@@ -53,6 +56,8 @@ jobs:
       # ============================================================
       - name: Terraform Init
         run: |
+          set -e
+
           terraform init
 
 
@@ -61,6 +66,8 @@ jobs:
       # ============================================================
       - name: Terraform Validate
         run: |
+          set -e
+
           terraform validate
 
 
@@ -69,5 +76,207 @@ jobs:
       # ============================================================
       - name: Terraform Apply
         run: |
+          set -e
+
           terraform apply \
             -auto-approve
+
+
+      # ============================================================
+      # 7. Update Application Config Repository
+      #
+      # This step runs only after all previous steps succeed.
+      #
+      # It:
+      #   - Retrieves dev/test/prod EKS endpoints
+      #   - Clones REPO_EXPLORER_APPLICATION_CONFIG
+      #   - Updates values-dev.yaml
+      #   - Updates values-test.yaml
+      #   - Updates values-prod.yaml
+      #   - Commits the changes
+      #   - Pushes them to master
+      # ============================================================
+      - name: Update EKS Endpoints in Application Config
+        run: |
+          set -euo pipefail
+
+          echo "Fetching EKS cluster endpoints..."
+
+          DEV_ENDPOINT=$(aws eks describe-cluster \
+            --region "$AWS_REGION" \
+            --name "dev_cluster" \
+            --query "cluster.endpoint" \
+            --output text)
+
+          TEST_ENDPOINT=$(aws eks describe-cluster \
+            --region "$AWS_REGION" \
+            --name "test_cluster" \
+            --query "cluster.endpoint" \
+            --output text)
+
+          PROD_ENDPOINT=$(aws eks describe-cluster \
+            --region "$AWS_REGION" \
+            --name "prod_cluster" \
+            --query "cluster.endpoint" \
+            --output text)
+
+          echo "Dev endpoint retrieved."
+          echo "Test endpoint retrieved."
+          echo "Prod endpoint retrieved."
+
+
+          # --------------------------------------------------------
+          # Clean possible accidental CR/LF characters from secrets
+          # --------------------------------------------------------
+          APPLICATION_CONFIG_REPO_CLEAN=$(printf '%s' "$APPLICATION_CONFIG_REPO" | tr -d '\r\n')
+          CONFIG_REPO_PAT_CLEAN=$(printf '%s' "$CONFIG_REPO_PAT" | tr -d '\r\n')
+
+          APPLICATION_CONFIG_REPO_CLEAN=$(printf '%s' "$APPLICATION_CONFIG_REPO_CLEAN" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          CONFIG_REPO_PAT_CLEAN=$(printf '%s' "$CONFIG_REPO_PAT_CLEAN" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+
+          # --------------------------------------------------------
+          # Create temporary Git authentication helper
+          #
+          # The PAT is never placed directly into the repository URL.
+          # --------------------------------------------------------
+          ASKPASS_SCRIPT=$(mktemp)
+
+          trap 'rm -f "$ASKPASS_SCRIPT"' EXIT
+
+          cat > "$ASKPASS_SCRIPT" <<'EOF'
+          #!/bin/sh
+
+          case "$1" in
+            *Username*)
+              printf '%s\n' "x-access-token"
+              ;;
+            *Password*)
+              printf '%s\n' "$CONFIG_REPO_PAT_CLEAN"
+              ;;
+          esac
+          EOF
+
+          chmod 700 "$ASKPASS_SCRIPT"
+
+          export GIT_ASKPASS="$ASKPASS_SCRIPT"
+          export GIT_TERMINAL_PROMPT=0
+          export CONFIG_REPO_PAT_CLEAN
+
+
+          # --------------------------------------------------------
+          # Clone application configuration repository
+          # --------------------------------------------------------
+          rm -rf application-config
+
+          echo "Cloning application configuration repository..."
+
+          git clone \
+            --branch master \
+            "$APPLICATION_CONFIG_REPO_CLEAN" \
+            application-config
+
+          cd application-config
+
+
+          # --------------------------------------------------------
+          # Configure Git identity
+          # --------------------------------------------------------
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+
+          # --------------------------------------------------------
+          # Update endpoint values
+          # --------------------------------------------------------
+          python3 - "$DEV_ENDPOINT" "$TEST_ENDPOINT" "$PROD_ENDPOINT" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          endpoint_values = {
+              "values-dev.yaml": sys.argv[1],
+              "values-test.yaml": sys.argv[2],
+              "values-prod.yaml": sys.argv[3],
+          }
+
+          for filename, endpoint in endpoint_values.items():
+              path = Path(filename)
+
+              if not path.exists():
+                  raise FileNotFoundError(
+                      f"Required file not found: {filename}"
+                  )
+
+              content = path.read_text()
+
+              # Match an indented endpoint field such as:
+              #
+              #   endpoint: "REPLACE_WITH_DEV_EKS_ENDPOINT"
+              #
+              # Preserve the existing indentation.
+              pattern = r'^([ \t]*)endpoint:\s*.*$'
+
+              def replace_endpoint(match):
+                  indentation = match.group(1)
+                  return f'{indentation}endpoint: "{endpoint}"'
+
+              updated, count = re.subn(
+                  pattern,
+                  replace_endpoint,
+                  content,
+                  count=1,
+                  flags=re.MULTILINE
+              )
+
+              if count != 1:
+                  raise RuntimeError(
+                      f"Could not find exactly one endpoint field in {filename}"
+                  )
+
+              path.write_text(updated)
+
+              print(f"Updated endpoint in {filename}")
+
+          PY
+
+
+          # --------------------------------------------------------
+          # Display changes
+          # --------------------------------------------------------
+          echo ""
+          echo "Git diff:"
+
+          git diff -- \
+            values-dev.yaml \
+            values-test.yaml \
+            values-prod.yaml
+
+
+          # --------------------------------------------------------
+          # Commit only when something actually changed
+          # --------------------------------------------------------
+          if git diff --quiet -- \
+            values-dev.yaml \
+            values-test.yaml \
+            values-prod.yaml; then
+
+            echo "No endpoint changes detected."
+
+          else
+
+            git add \
+              values-dev.yaml \
+              values-test.yaml \
+              values-prod.yaml
+
+            git commit \
+              -m "Update EKS cluster endpoints"
+
+            echo "Pushing endpoint updates to master..."
+
+            git push origin HEAD:master
+
+            echo "Application configuration repository updated successfully."
+
+          fi
