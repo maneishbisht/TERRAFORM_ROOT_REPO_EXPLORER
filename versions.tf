@@ -13,8 +13,8 @@ terraform {
     }
   }
     backend "s3" {
-    bucket       = "repoexplorerstatebucket"
-    key          = "rootrepoexplorer.tfstate"
+    bucket       = "repoexplorerstatebucketcollege"
+    key          = "rootrepoexplorercollege.tfstate"
     region       = "ap-south-1"
     use_lockfile = true
   }
