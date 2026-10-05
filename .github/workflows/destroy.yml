@@ -1,0 +1,97 @@
+name: Terraform Destroy - Root AWS Architecture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  terraform-destroy:
+    name: Destroy Terraform Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ============================================================
+      # 1. Checkout Terraform repository
+      # ============================================================
+      - name: Checkout Terraform Repository
+        uses: actions/checkout@v4
+
+
+      # ============================================================
+      # 2. Configure AWS credentials
+      #
+      # This root Terraform project uses the IAM user's credentials
+      # directly. No AssumeRole is required here.
+      # ============================================================
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+
+      # ============================================================
+      # 3. Verify AWS authentication
+      # ============================================================
+      - name: Verify AWS Identity
+        run: |
+          set -euo pipefail
+
+          echo "AWS identity being used:"
+          aws sts get-caller-identity
+
+
+      # ============================================================
+      # 4. Setup Terraform
+      # ============================================================
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+
+
+      # ============================================================
+      # 5. Terraform Init
+      #
+      # This also connects to the configured remote S3 backend.
+      # The IAM user therefore needs the required S3 backend
+      # permissions.
+      # ============================================================
+      - name: Terraform Init
+        run: |
+          set -euo pipefail
+
+          terraform init -input=false
+
+
+      # ============================================================
+      # 6. Terraform Validate
+      # ============================================================
+      - name: Terraform Validate
+        run: |
+          set -euo pipefail
+
+          terraform validate
+
+
+      # ============================================================
+      # 7. Terraform Destroy
+      #
+      # Terraform will destroy all resources represented by this
+      # Terraform project's state.
+      # ============================================================
+      - name: Terraform Destroy
+        run: |
+          set -euo pipefail
+
+          terraform destroy \
+            -input=false \
+            -auto-approve

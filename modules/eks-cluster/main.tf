@@ -251,6 +251,70 @@ resource "aws_iam_role_policy" "ssm_policy" {
   })
 }
 
+
+resource "aws_iam_role_policy" "gateway_controller_policy" {
+  name = "${var.cluster_name}-gateway-controller-policy"
+  role = aws_iam_role.lb_role.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "vpc-lattice:CreateServiceNetwork",
+          "vpc-lattice:DeleteServiceNetwork",
+          "vpc-lattice:GetServiceNetwork",
+          "vpc-lattice:ListServiceNetworks",
+          "vpc-lattice:UpdateServiceNetwork",
+          "vpc-lattice:CreateServiceNetworkVpcAssociation",
+          "vpc-lattice:DeleteServiceNetworkVpcAssociation",
+          "vpc-lattice:GetServiceNetworkVpcAssociation",
+          "vpc-lattice:ListServiceNetworkVpcAssociations",
+          "vpc-lattice:CreateService",
+          "vpc-lattice:DeleteService",
+          "vpc-lattice:GetService",
+          "vpc-lattice:ListServices",
+          "vpc-lattice:UpdateService",
+          "vpc-lattice:CreateListener",
+          "vpc-lattice:DeleteListener",
+          "vpc-lattice:GetListener",
+          "vpc-lattice:ListListeners",
+          "vpc-lattice:UpdateListener",
+          "vpc-lattice:CreateRule",
+          "vpc-lattice:DeleteRule",
+          "vpc-lattice:GetRule",
+          "vpc-lattice:ListRules",
+          "vpc-lattice:UpdateRule",
+          "vpc-lattice:CreateTargetGroup",
+          "vpc-lattice:DeleteTargetGroup",
+          "vpc-lattice:GetTargetGroup",
+          "vpc-lattice:ListTargetGroups",
+          "vpc-lattice:UpdateTargetGroup",
+          "vpc-lattice:RegisterTargets",
+          "vpc-lattice:DeregisterTargets",
+          "vpc-lattice:ListTargets",
+          "vpc-lattice:CreateAuthPolicy",
+          "vpc-lattice:DeleteAuthPolicy",
+          "vpc-lattice:GetAuthPolicy",
+          "vpc-lattice:PutAuthPolicy",
+          "vpc-lattice:UpdateAuthPolicy",
+          "vpc-lattice:PutResourcePolicy",
+          "vpc-lattice:GetResourcePolicy",
+          "vpc-lattice:DeleteResourcePolicy",
+          "tag:GetResources",
+          "tag:TagResources",
+          "tag:UntagResources",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # -----------------------------------------------------------------------------
 # IAM role for the user-managed AWS Load Balancer Controller installation.
 # Terraform creates the role and the Kubernetes ServiceAccount, but DOES NOT
