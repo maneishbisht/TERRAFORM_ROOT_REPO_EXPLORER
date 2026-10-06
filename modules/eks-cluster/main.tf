@@ -251,6 +251,10 @@ resource "aws_iam_role_policy" "ssm_policy" {
   })
 }
 
+resource "aws_iam_role" "lb_role" {
+  name               = "${var.cluster_name}-gateway-lb-role"
+  assume_role_policy = data.aws_iam_policy_document.gateway_controller_irsa_trust.json
+}
 
 resource "aws_iam_role_policy" "gateway_controller_policy" {
   name = "${var.cluster_name}-gateway-controller-policy"
@@ -258,57 +262,120 @@ resource "aws_iam_role_policy" "gateway_controller_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17"
+
     Statement = [
       {
         Effect = "Allow"
+
         Action = [
-          "vpc-lattice:CreateServiceNetwork",
-          "vpc-lattice:DeleteServiceNetwork",
-          "vpc-lattice:GetServiceNetwork",
-          "vpc-lattice:ListServiceNetworks",
-          "vpc-lattice:UpdateServiceNetwork",
-          "vpc-lattice:CreateServiceNetworkVpcAssociation",
-          "vpc-lattice:DeleteServiceNetworkVpcAssociation",
-          "vpc-lattice:GetServiceNetworkVpcAssociation",
-          "vpc-lattice:ListServiceNetworkVpcAssociations",
-          "vpc-lattice:CreateService",
-          "vpc-lattice:DeleteService",
-          "vpc-lattice:GetService",
-          "vpc-lattice:ListServices",
-          "vpc-lattice:UpdateService",
-          "vpc-lattice:CreateListener",
-          "vpc-lattice:DeleteListener",
-          "vpc-lattice:GetListener",
-          "vpc-lattice:ListListeners",
-          "vpc-lattice:UpdateListener",
-          "vpc-lattice:CreateRule",
-          "vpc-lattice:DeleteRule",
-          "vpc-lattice:GetRule",
-          "vpc-lattice:ListRules",
-          "vpc-lattice:UpdateRule",
-          "vpc-lattice:CreateTargetGroup",
-          "vpc-lattice:DeleteTargetGroup",
-          "vpc-lattice:GetTargetGroup",
-          "vpc-lattice:ListTargetGroups",
-          "vpc-lattice:UpdateTargetGroup",
-          "vpc-lattice:RegisterTargets",
-          "vpc-lattice:DeregisterTargets",
-          "vpc-lattice:ListTargets",
-          "vpc-lattice:CreateAuthPolicy",
-          "vpc-lattice:DeleteAuthPolicy",
-          "vpc-lattice:GetAuthPolicy",
-          "vpc-lattice:PutAuthPolicy",
-          "vpc-lattice:UpdateAuthPolicy",
-          "vpc-lattice:PutResourcePolicy",
-          "vpc-lattice:GetResourcePolicy",
-          "vpc-lattice:DeleteResourcePolicy",
+          # ---------------------------------------------------------
+          # Elastic Load Balancing v2
+          # ---------------------------------------------------------
+          "elasticloadbalancing:CreateLoadBalancer",
+          "elasticloadbalancing:DeleteLoadBalancer",
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:ModifyLoadBalancerAttributes",
+          "elasticloadbalancing:DescribeLoadBalancerAttributes",
+
+          "elasticloadbalancing:CreateListener",
+          "elasticloadbalancing:DeleteListener",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:ModifyListener",
+
+          "elasticloadbalancing:CreateRule",
+          "elasticloadbalancing:DeleteRule",
+          "elasticloadbalancing:DescribeRules",
+          "elasticloadbalancing:ModifyRule",
+
+          "elasticloadbalancing:CreateTargetGroup",
+          "elasticloadbalancing:DeleteTargetGroup",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:ModifyTargetGroup",
+          "elasticloadbalancing:ModifyTargetGroupAttributes",
+
+          "elasticloadbalancing:RegisterTargets",
+          "elasticloadbalancing:DeregisterTargets",
+          "elasticloadbalancing:DescribeTargetHealth",
+
+          "elasticloadbalancing:AddTags",
+          "elasticloadbalancing:RemoveTags",
+          "elasticloadbalancing:DescribeTags",
+
+          "elasticloadbalancing:SetIpAddressType",
+          "elasticloadbalancing:SetSecurityGroups",
+          "elasticloadbalancing:SetSubnets",
+
+          # ALB listener / rule actions
+          "elasticloadbalancing:SetWebAcl",
+
+          # ---------------------------------------------------------
+          # EC2 networking
+          # ---------------------------------------------------------
+          "ec2:DescribeVpcs",
+          "ec2:DescribeVpcAttribute",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSecurityGroupRules",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeInstances",
+          "ec2:DescribeTags",
+
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupIngress",
+
+          # ---------------------------------------------------------
+          # AWS Resource Groups Tagging API
+          # ---------------------------------------------------------
           "tag:GetResources",
           "tag:TagResources",
           "tag:UntagResources",
-          "ec2:DescribeVpcs",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeSecurityGroups"
+
+          # ---------------------------------------------------------
+          # ACM
+          # Required when Gateway/Ingress configuration references
+          # ACM certificates.
+          # ---------------------------------------------------------
+          "acm:DescribeCertificate",
+          "acm:ListCertificates",
+
+          # ---------------------------------------------------------
+          # WAFv2
+          # Required when ALBs are associated with WAFv2 WebACLs.
+          # ---------------------------------------------------------
+          "wafv2:GetWebACL",
+          "wafv2:AssociateWebACL",
+          "wafv2:DisassociateWebACL",
+
+          # ---------------------------------------------------------
+          # Shield Advanced
+          # Required for Shield-related ALB integration.
+          # ---------------------------------------------------------
+          "shield:GetSubscriptionState",
+          "shield:DescribeProtection",
+          "shield:CreateProtection",
+          "shield:DeleteProtection",
+
+          # ---------------------------------------------------------
+          # Cognito
+          # Required for ALB authenticate-cognito listener actions.
+          # ---------------------------------------------------------
+          "cognito-idp:DescribeUserPoolClient",
+
+          # ---------------------------------------------------------
+          # IAM
+          # Required for OIDC/role-related ALB authentication
+          # configurations where applicable.
+          # ---------------------------------------------------------
+          "iam:CreateServiceLinkedRole",
+
+          # ---------------------------------------------------------
+          # Resource discovery
+          # ---------------------------------------------------------
+          "elasticloadbalancing:DescribeAccountLimits"
         ]
+
         Resource = "*"
       }
     ]
@@ -322,10 +389,6 @@ resource "aws_iam_role_policy" "gateway_controller_policy" {
 # separate controller-installation script remains responsible for that part.
 # -----------------------------------------------------------------------------
 
-resource "aws_iam_role" "lb_role" {
-  name               = "${var.cluster_name}-gateway-lb-role"
-  assume_role_policy = data.aws_iam_policy_document.gateway_controller_irsa_trust.json
-}
 
 # -----------------------------------------------------------------------------
 # EKS access entries

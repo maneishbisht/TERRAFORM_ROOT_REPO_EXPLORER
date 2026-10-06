@@ -23,17 +23,17 @@ variable "instance_type" {
 
 variable "desired_capacity" {
   type    = number
-  default = 1
+  default = 3
 }
 
 variable "min_size" {
   type    = number
-  default = 1
+  default = 2
 }
 
 variable "max_size" {
   type    = number
-  default = 1
+  default = 3
 }
 
 variable "admin_iam_role_arn" {
