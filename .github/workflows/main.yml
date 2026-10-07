@@ -89,21 +89,23 @@ jobs:
       #
       # It:
       #   - Retrieves dev/test/prod EKS endpoints
+      #   - Retrieves dev/test VPC IDs
       #   - Clones REPO_EXPLORER_APPLICATION_CONFIG
       #   - Updates values-dev.yaml
       #   - Updates values-test.yaml
       #   - Updates values-prod.yaml
+      #   - Updates aws.vpcId in dev/test values
       #   - Commits the changes
       #   - Pushes them to master
       #
       # PROD-specific commands are currently commented out.
       # They can be enabled later by removing the comments.
       # ============================================================
-      - name: Update EKS Endpoints in Application Config
+      - name: Update EKS Endpoints and VPC IDs in Application Config
         run: |
           set -euo pipefail
 
-          echo "Fetching EKS cluster endpoints..."
+          echo "Fetching EKS cluster endpoints and VPC IDs..."
 
           DEV_ENDPOINT=$(aws eks describe-cluster \
             --region "$AWS_REGION" \
@@ -117,6 +119,18 @@ jobs:
             --query "cluster.endpoint" \
             --output text)
 
+          DEV_VPC_ID=$(aws eks describe-cluster \
+            --region "$AWS_REGION" \
+            --name "dev_cluster" \
+            --query "cluster.resourcesVpcConfig.vpcId" \
+            --output text)
+
+          TEST_VPC_ID=$(aws eks describe-cluster \
+            --region "$AWS_REGION" \
+            --name "test_cluster" \
+            --query "cluster.resourcesVpcConfig.vpcId" \
+            --output text)
+
           # PROD CLUSTER - currently disabled
           # Uncomment the complete block below when the prod cluster is required.
           #
@@ -125,14 +139,24 @@ jobs:
           #   --name "prod_cluster" \
           #   --query "cluster.endpoint" \
           #   --output text)
+          #
+          # PROD_VPC_ID=$(aws eks describe-cluster \
+          #   --region "$AWS_REGION" \
+          #   --name "prod_cluster" \
+          #   --query "cluster.resourcesVpcConfig.vpcId" \
+          #   --output text)
 
           echo "Dev endpoint retrieved."
           echo "Test endpoint retrieved."
 
+          echo "Dev VPC ID retrieved: $DEV_VPC_ID"
+          echo "Test VPC ID retrieved: $TEST_VPC_ID"
+
           # PROD CLUSTER - currently disabled
-          # Uncomment when PROD_ENDPOINT above is enabled.
+          # Uncomment when PROD_ENDPOINT and PROD_VPC_ID above are enabled.
           #
           # echo "Prod endpoint retrieved."
+          # echo "Prod VPC ID retrieved: $PROD_VPC_ID"
 
 
           # --------------------------------------------------------
@@ -197,24 +221,34 @@ jobs:
 
 
           # --------------------------------------------------------
-          # Update endpoint values
+          # Update endpoint and VPC ID values
           # --------------------------------------------------------
-          python3 - "$DEV_ENDPOINT" "$TEST_ENDPOINT" <<'PY'
+          python3 - "$DEV_ENDPOINT" "$TEST_ENDPOINT" "$DEV_VPC_ID" "$TEST_VPC_ID" <<'PY'
           import re
           import sys
           from pathlib import Path
 
           endpoint_values = {
-              "values-dev.yaml": sys.argv[1],
-              "values-test.yaml": sys.argv[2],
+              "values-dev.yaml": {
+                  "endpoint": sys.argv[1],
+                  "vpcId": sys.argv[3],
+              },
+              "values-test.yaml": {
+                  "endpoint": sys.argv[2],
+                  "vpcId": sys.argv[4],
+              },
 
               # PROD CLUSTER - currently disabled
-              # Uncomment this line when PROD_ENDPOINT is enabled above.
+              # Uncomment this block when PROD_ENDPOINT and PROD_VPC_ID
+              # are enabled above.
               #
-              # "values-prod.yaml": sys.argv[3],
+              # "values-prod.yaml": {
+              #     "endpoint": sys.argv[5],
+              #     "vpcId": sys.argv[6],
+              # },
           }
 
-          for filename, endpoint in endpoint_values.items():
+          for filename, values in endpoint_values.items():
               path = Path(filename)
 
               if not path.exists():
@@ -224,33 +258,113 @@ jobs:
 
               content = path.read_text()
 
+              # ----------------------------------------------------
+              # Update endpoint
+              #
               # Match an indented endpoint field such as:
               #
               #   endpoint: "REPLACE_WITH_DEV_EKS_ENDPOINT"
               #
               # Preserve the existing indentation.
-              pattern = r'^([ \t]*)endpoint:\s*.*$'
+              # ----------------------------------------------------
+              endpoint_pattern = r'^([ \t]*)endpoint:\s*.*$'
 
               def replace_endpoint(match):
                   indentation = match.group(1)
-                  return f'{indentation}endpoint: "{endpoint}"'
+                  return f'{indentation}endpoint: "{values["endpoint"]}"'
 
-              updated, count = re.subn(
-                  pattern,
+              updated, endpoint_count = re.subn(
+                  endpoint_pattern,
                   replace_endpoint,
                   content,
                   count=1,
                   flags=re.MULTILINE
               )
 
-              if count != 1:
+              if endpoint_count != 1:
                   raise RuntimeError(
                       f"Could not find exactly one endpoint field in {filename}"
                   )
 
-              path.write_text(updated)
 
-              print(f"Updated endpoint in {filename}")
+              # ----------------------------------------------------
+              # Update aws.vpcId
+              #
+              # Expected structure:
+              #
+              # aws:
+              #   region: ap-south-1
+              #   vpcId: "..."
+              #
+              # The script only modifies vpcId inside the aws block.
+              # ----------------------------------------------------
+              lines = updated.splitlines(keepends=True)
+
+              aws_index = None
+              aws_indent = None
+
+              for i, line in enumerate(lines):
+                  match = re.match(r'^([ \t]*)aws:\s*(?:#.*)?$', line.rstrip('\r\n'))
+
+                  if match:
+                      aws_index = i
+                      aws_indent = len(match.group(1).expandtabs(2))
+                      break
+
+              if aws_index is None:
+                  raise RuntimeError(
+                      f"Could not find aws: section in {filename}"
+                  )
+
+
+              vpc_id_count = 0
+              vpc_updated = False
+
+              for i in range(aws_index + 1, len(lines)):
+                  line = lines[i]
+
+                  # Stop when another top-level section begins.
+                  if line.strip() and not line[0].isspace():
+                      break
+
+                  vpc_match = re.match(
+                      r'^([ \t]*)vpcId:\s*.*$',
+                      line.rstrip('\r\n')
+                  )
+
+                  if vpc_match:
+                      indentation = vpc_match.group(1)
+
+                      lines[i] = (
+                          f'{indentation}vpcId: "{values["vpcId"]}"'
+                          + ('\n' if line.endswith('\n') else '')
+                      )
+
+                      vpc_id_count += 1
+                      vpc_updated = True
+                      break
+
+
+              if not vpc_updated:
+                  raise RuntimeError(
+                      f"Could not find aws.vpcId field in {filename}"
+                  )
+
+              if vpc_id_count != 1:
+                  raise RuntimeError(
+                      f"Expected exactly one aws.vpcId field in {filename}, "
+                      f"found {vpc_id_count}"
+                  )
+
+
+              # ----------------------------------------------------
+              # Write updated file
+              # ----------------------------------------------------
+              path.write_text(''.join(lines))
+
+              print(
+                  f"Updated endpoint and aws.vpcId in {filename}"
+              )
 
           PY
 
@@ -283,7 +397,7 @@ jobs:
             values-test.yaml
           then
 
-            echo "No endpoint changes detected."
+            echo "No endpoint or VPC ID changes detected."
 
           else
 
@@ -297,9 +411,9 @@ jobs:
             # git add values-prod.yaml
 
             git commit \
-              -m "Update EKS cluster endpoints"
+              -m "Update EKS cluster endpoints and VPC IDs"
 
-            echo "Pushing endpoint updates to master..."
+            echo "Pushing endpoint and VPC ID updates to master..."
 
             git push origin HEAD:master
 
