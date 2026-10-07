@@ -14,9 +14,9 @@ locals {
     test = {
       cluster_name = module.test_cluster.cluster_name
     }
-    prod = {
-      cluster_name = module.prod_cluster.cluster_name
-    }
+    #prod = {
+    #  cluster_name = module.prod_cluster.cluster_name
+    #}
   }
 }
 
@@ -28,7 +28,7 @@ data "aws_eks_cluster" "clusters" {
   depends_on = [
     module.dev_cluster,
     module.test_cluster,
-    module.prod_cluster
+    #module.prod_cluster
   ]
 }
 
@@ -73,23 +73,23 @@ provider "kubernetes" {
   }
 }
 
-provider "kubernetes" {
-  alias = "prod"
-
-  host                   = data.aws_eks_cluster.clusters["prod"].endpoint
-  cluster_ca_certificate = base64decode(data.aws_eks_cluster.clusters["prod"].certificate_authority[0].data)
-
-  exec {
-    api_version = "client.authentication.k8s.io/v1"
-    command     = "aws"
-
-    args = [
-      "eks",
-      "get-token",
-      "--region",
-      var.aws_region,
-      "--cluster-name",
-      data.aws_eks_cluster.clusters["prod"].name
-    ]
-  }
-}
+#provider "kubernetes" {
+#  alias = "prod"
+#
+#  host                   = data.aws_eks_cluster.clusters["prod"].endpoint
+#  cluster_ca_certificate = base64decode(data.aws_eks_cluster.clusters["prod"].certificate_authority[0].data)
+#
+#  exec {
+#    api_version = "client.authentication.k8s.io/v1"
+#    command     = "aws"
+#
+#    args = [
+#      "eks",
+#      "get-token",
+#      "--region",
+#      var.aws_region,
+#      "--cluster-name",
+#      data.aws_eks_cluster.clusters["prod"].name
+#    ]
+#  }
+#}

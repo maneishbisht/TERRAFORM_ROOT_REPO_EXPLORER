@@ -74,16 +74,16 @@ module "test_cluster" {
   view_only_iam_role_arn = local.view_only_role
 }
 
-module "prod_cluster" {
-  source = "./modules/eks-cluster"
-
-  cluster_name           = "prod_cluster"
-  node_group_name        = "prod-nodes"
-  instance_type          = "t4g.small"
-  region                 = var.aws_region
-  admin_iam_role_arn     = local.admin_role
-  view_only_iam_role_arn = local.view_only_role
-}
+#module "prod_cluster" {
+#  source = "./modules/eks-cluster"
+#
+#  cluster_name           = "prod_cluster"
+#  node_group_name        = "prod-nodes"
+#  instance_type          = "t4g.small"
+#  region                 = var.aws_region
+#  admin_iam_role_arn     = local.admin_role
+#  view_only_iam_role_arn = local.view_only_role
+#}
 
 # -----------------------------------------------------------------------------
 # Kubernetes/bootstrap modules
@@ -118,15 +118,15 @@ module "test_bootstrap" {
   depends_on = [module.test_cluster]
 }
 
-module "prod_bootstrap" {
-  source = "./modules/kubernetes-bootstrap"
-
-  providers = {
-    kubernetes = kubernetes.prod
-  }
-
-  repo_explorer_backend_role_arn = module.prod_cluster.repo_explorer_backend_role_arn
-  gateway_controller_role_arn    = module.prod_cluster.gateway_controller_role_arn
-
-  depends_on = [module.prod_cluster]
-}
+#module "prod_bootstrap" {
+#  source = "./modules/kubernetes-bootstrap"
+#
+#  providers = {
+#    kubernetes = kubernetes.prod
+#  }
+#
+#  repo_explorer_backend_role_arn = module.prod_cluster.repo_explorer_backend_role_arn
+#  gateway_controller_role_arn    = module.prod_cluster.gateway_controller_role_arn
+#
+#  depends_on = [module.prod_cluster]
+#}
